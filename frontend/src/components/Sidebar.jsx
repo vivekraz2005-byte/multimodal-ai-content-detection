@@ -1,70 +1,56 @@
 import React from 'react';
-import { Image, Video, Music, FileText, CheckCircle2, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, FileSearch, History, Settings, ShieldAlert } from 'lucide-react';
 
-const Sidebar = ({ activeTab, onSelectTab, stats }) => {
-  const items = [
-    { id: 'all', label: 'All Media', icon: ShieldCheck, count: stats?.total || 0 },
-    { id: 'image', label: 'Images', icon: Image, count: stats?.images || 0 },
-    { id: 'video', label: 'Videos', icon: Video, count: stats?.videos || 0 },
-    { id: 'audio', label: 'Audio', icon: Music, count: stats?.audio || 0 },
-    { id: 'document', label: 'Documents', icon: FileText, count: stats?.documents || 0 },
+export default function Sidebar({ activeTab = 'dashboard', setActiveTab }) {
+  const menuItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'analysis', label: 'Analysis Tool', icon: FileSearch },
+    { id: 'history', label: 'Detection History', icon: History },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   return (
-    <aside style={{
-      width: '240px',
-      background: 'var(--bg-card)',
-      border: '1px solid var(--border-subtle)',
-      borderRadius: 'var(--radius-lg)',
-      padding: '1.25rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.5rem',
-      height: 'fit-content'
-    }}>
-      <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#9ca3af', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-        Filter Media
-      </span>
-      {items.map((item) => {
-        const Icon = item.icon;
-        const isActive = activeTab === item.id;
-        return (
-          <button
-            key={item.id}
-            onClick={() => onSelectTab(item.id)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0.65rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              background: isActive ? 'var(--primary-glow)' : 'transparent',
-              color: isActive ? '#60a5fa' : 'var(--text-muted)',
-              fontWeight: isActive ? 600 : 500,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Icon size={16} />
-              <span style={{ fontSize: '0.9rem' }}>{item.label}</span>
-            </div>
-            {item.count > 0 && (
-              <span style={{
-                fontSize: '0.75rem',
-                background: 'rgba(255, 255, 255, 0.08)',
-                padding: '0.1rem 0.45rem',
-                borderRadius: '10px'
-              }}>
-                {item.count}
-              </span>
-            )}
-          </button>
-        );
-      })}
+    <aside className="w-64 bg-gray-950 border-r border-gray-800 min-h-screen p-5 flex flex-col justify-between">
+      <div className="space-y-6">
+        <div className="flex items-center space-x-3 px-2">
+          <div className="p-2 bg-indigo-600 rounded-lg text-white">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-100 text-base leading-none">DeepDetect</h2>
+            <span className="text-[10px] text-indigo-400 font-medium tracking-wider uppercase">AI Sentinel</span>
+          </div>
+        </div>
+
+        <nav className="space-y-1.5">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab && setActiveTab(item.id)}
+                className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  isActive
+                    ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="p-3 bg-gray-900/60 border border-gray-800/80 rounded-xl">
+        <p className="text-xs font-semibold text-gray-300">System Status</p>
+        <div className="flex items-center space-x-2 mt-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs text-gray-400">All Detection Engines Online</span>
+        </div>
+      </div>
     </aside>
   );
-};
-
-export default Sidebar;
+}
