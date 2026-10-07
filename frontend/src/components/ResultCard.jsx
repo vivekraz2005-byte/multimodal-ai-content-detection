@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, AlertTriangle, HelpCircle, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, HelpCircle, Sparkles, ShieldAlert } from 'lucide-react';
 
 const ASSESSMENT_CONFIG = {
   'Likely Authentic': {
@@ -45,48 +45,51 @@ const ResultCard = ({ assessment, confidence, whyExplanation, uncertaintyReasons
 
   return (
     <div className="card" style={{
-      borderLeft: `4px solid ${config.color}`,
+      borderLeft: `5px solid ${config.color}`,
       background: 'var(--bg-card)',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      boxShadow: '0 10px 40px -10px rgba(0,0,0,0.6)'
     }}>
+      {/* Background ambient gradient glow */}
       <div style={{
         position: 'absolute',
-        top: '-40px',
-        right: '-40px',
-        width: '160px',
-        height: '160px',
+        top: '-50px',
+        right: '-50px',
+        width: '180px',
+        height: '180px',
         borderRadius: '50%',
         background: config.bgColor,
-        filter: 'blur(30px)',
+        filter: 'blur(45px)',
         pointerEvents: 'none'
       }} />
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
         <div>
-          <span style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af', fontWeight: 600 }}>
+          <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-dim)', fontWeight: 700 }}>
             Overall Authenticity Assessment
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.35rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', marginTop: '0.4rem' }}>
             <div style={{
               background: config.bgColor,
-              padding: '8px',
-              borderRadius: '10px',
+              padding: '10px',
+              borderRadius: '12px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: `1px solid ${config.borderColor}`
+              border: `1px solid ${config.borderColor}`,
+              boxShadow: `0 0 20px ${config.bgColor}`
             }}>
-              <Icon size={26} color={config.color} />
+              <Icon size={28} color={config.color} />
             </div>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: config.color }}>
+            <h2 style={{ fontSize: '1.85rem', fontWeight: 800, color: config.color, letterSpacing: '-0.02em' }}>
               {assessment}
             </h2>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-          <span className={`badge ${config.badgeClass}`} style={{ fontSize: '0.85rem', padding: '0.35rem 0.85rem' }}>
+          <span className={`badge ${config.badgeClass}`} style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}>
             {confidence} Confidence
           </span>
         </div>
@@ -94,16 +97,16 @@ const ResultCard = ({ assessment, confidence, whyExplanation, uncertaintyReasons
 
       {/* "Why?" section */}
       <div style={{
-        background: 'rgba(255, 255, 255, 0.03)',
+        background: 'rgba(255, 255, 255, 0.025)',
         borderRadius: 'var(--radius-md)',
-        padding: '1.2rem',
+        padding: '1.25rem',
         border: '1px solid var(--border-subtle)',
-        marginBottom: '1rem'
+        marginBottom: '1.25rem'
       }}>
-        <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f3f4f6', marginBottom: '0.4rem' }}>
+        <h4 style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f3f4f6', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           Why this assessment?
         </h4>
-        <p style={{ color: '#d1d5db', fontSize: '0.95rem', lineHeight: 1.6 }}>
+        <p style={{ color: '#cbd5e1', fontSize: '0.95rem', lineHeight: 1.65 }}>
           {whyExplanation}
         </p>
       </div>
@@ -113,17 +116,17 @@ const ResultCard = ({ assessment, confidence, whyExplanation, uncertaintyReasons
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.4rem',
-          padding: '0.85rem 1rem',
+          gap: '0.5rem',
+          padding: '1rem 1.15rem',
           borderRadius: 'var(--radius-sm)',
           background: 'rgba(245, 158, 11, 0.05)',
           border: '1px solid rgba(245, 158, 11, 0.2)'
         }}>
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Uncertainty & Contextual Factors
           </span>
           {uncertaintyReasons.map((reason, idx) => (
-            <p key={idx} style={{ fontSize: '0.85rem', color: '#d1d5db', margin: 0, lineHeight: 1.4 }}>
+            <p key={idx} style={{ fontSize: '0.88rem', color: '#d1d5db', margin: 0, lineHeight: 1.5 }}>
               • {reason}
             </p>
           ))}
