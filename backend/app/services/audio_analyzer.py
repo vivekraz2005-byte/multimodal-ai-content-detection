@@ -1,113 +1,33 @@
+"""Audio file inspection. Sample rate, mono/stereo and encoder are not AI detectors."""
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
-
+from typing import Any, Dict, List, Tuple
+import hashlib, logging
+logger = logging.getLogger(__name__)
+SYNTH_TERMS = ("elevenlabs", "play.ht", "playht", "resemble ai", "coqui tts", "text-to-speech", "text to speech", "synthetic speech")
 class AudioAnalyzer:
-    """
-    Multimodal Audio Authenticity & Synthetic Voice Analyzer.
-    Examines acoustic properties, sample rate cutoffs (vocoder signatures),
-    speech pauses, clipping, and tags.
-    """
-
     @staticmethod
     def analyze(file_path: Path, metadata: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        evidence = []
-        ai_signals = []
-        manipulation_signals = []
-
-        sample_rate_str = metadata.get("Sample Rate", "Not available")
-        channels_str = metadata.get("Channels", "Not available")
-        encoder = metadata.get("Encoder", "Not available")
-
-        # 1. Vocoder sample rate / cutoff signature
-        # Many synthetic voice models (ElevenLabs, Bark, Tortoise, VITS) output at 22050 Hz or 24000 Hz
-        if "22050" in sample_rate_str or "24000" in sample_rate_str:
-            evidence.append({
-                "id": "AUD_EVID_VOCODER_SR",
-                "title": "Acoustic Sample Rate Typical of Neural Vocoders",
-                "category": "AI Generation",
-                "severity": "Medium",
-                "description": f"Audio sample rate is {sample_rate_str}. Neural TTS models (Bark, Tortoise, VITS) predominantly synthesize at 22.05 kHz or 24 kHz.",
-                "technical_details": "Nyquist frequency cutoff aligns with standard text-to-speech vocoder bandwidth limits."
-            })
-            ai_signals.append(0.68)
-        elif "44100" in sample_rate_str or "48000" in sample_rate_str:
-            evidence.append({
-                "id": "AUD_EVID_STUDIO_SR",
-                "title": "Standard Studio / Hardware Sampling Rate",
-                "category": "Acoustics",
-                "severity": "Informational",
-                "description": f"Audio sample rate is standard high-fidelity ({sample_rate_str}).",
-                "technical_details": "Matches typical professional capture microphones and interface ADCs."
-            })
-            ai_signals.append(0.25)
-
-        # 2. Check for synthetic voice encoder tags
-        if encoder != "Not available":
-            encoder_lower = encoder.lower()
-            if any(k in encoder_lower for k in ["elevenlabs", "coqui", "descript", "play.ht", "resemble", "voice"]):
-                evidence.append({
-                    "id": "AUD_EVID_SYNTH_TAG",
-                    "title": "Voice Synthesis Encoder Tag Identified",
-                    "category": "AI Generation",
-                    "severity": "High",
-                    "description": f"Embedded audio tag explicitly specifies synthetic generator: '{encoder}'.",
-                    "technical_details": f"ID3/Container metadata tag: {encoder}"
-                })
-                ai_signals.append(0.96)
-            elif "lame" in encoder_lower or "lavf" in encoder_lower or "ffmpeg" in encoder_lower:
-                evidence.append({
-                    "id": "AUD_EVID_ENCODER_COMMON",
-                    "title": "Standard Software Encoder Fingerprint",
-                    "category": "Metadata",
-                    "severity": "Informational",
-                    "description": f"Encoded with standard software tool: {encoder}.",
-                    "technical_details": "Commonly found in both authentic recordings and web-transcoded media."
-                })
-                manipulation_signals.append(0.35)
-
-        # 3. Channel configuration check (mono voice clones vs ambient acoustic space)
-        if "Mono" in channels_str:
-            evidence.append({
-                "id": "AUD_EVID_MONO_DIRECT",
-                "title": "Single-Channel (Mono) Voice Profile",
-                "category": "Acoustics",
-                "severity": "Low",
-                "description": "Audio stream is single-channel mono with absence of natural room binaural acoustics.",
-                "technical_details": "Voice cloning pipelines typically render dry single-channel signals without reverberant stereo dispersion."
-            })
-            ai_signals.append(0.45)
-        else:
-            evidence.append({
-                "id": "AUD_EVID_STEREO_AMBIENCE",
-                "title": "Multi-Channel Spatial Profile",
-                "category": "Acoustics",
-                "severity": "Informational",
-                "description": "Multi-channel recording with ambient stereo balance.",
-                "technical_details": "Room acoustic reflections detected across stereo channels."
-            })
-            ai_signals.append(0.20)
-
-        # 4. Silence & Cadence consistency (robotic cadence check)
-        evidence.append({
-            "id": "AUD_EVID_CADENCE_SPECTRUM",
-            "title": "Speech Pitch & Cadence Continuity",
-            "category": "AI Generation",
-            "severity": "Informational",
-            "description": "Formant dynamics and breathing pause distribution analyzed.",
-            "technical_details": "Checked for pitch micro-tremor consistency and spectral energy decay above 16kHz."
-        })
-
-        ai_score = float(sum(ai_signals) / len(ai_signals)) if ai_signals else 0.30
-        manipulation_score = float(sum(manipulation_signals) / len(manipulation_signals)) if manipulation_signals else 0.20
-
-        results = {
-            "ai_generation_score": round(ai_score, 3),
-            "manipulation_score": round(manipulation_score, 3),
-            "spectral_summary": "Analyzed Nyquist cutoffs, silence distribution, and vocoder harmonic signatures.",
-            "model_architecture": "Acoustic Vocoder & Spectral Formant Detection Engine v1.0",
-            # TODO: Plug in RawNet3 / Wav2Vec2 synthetic voice classifier:
-            # speech_features = extract_mfcc_mel(audio_path)
-            # prediction = audio_model(speech_features)
-        }
-
-        return results, evidence
+        p=Path(file_path); evidence: List[Dict[str, Any]]=[]
+        result={"ai_generation_score":0.0,"manipulation_score":0.0,"ai_model_available":False,"manipulation_model_available":False,"score_semantics":"No calibrated synthetic-audio classifier configured; scores are not probabilities.","model_architecture":"Metadata screening only; no audio ML inference","file_sha256":None}
+        if not p.is_file():
+            evidence.append({"id":"AUD_EVID_ERROR","title":"Audio file unavailable","category":"System","severity":"Informational","description":"The file path does not point to a readable file.","technical_details":str(p)})
+            result["analysis_error"]="File unavailable"; return result,evidence
+        try:
+            h=hashlib.sha256()
+            with p.open('rb') as f:
+                for c in iter(lambda:f.read(1024*1024),b''): h.update(c)
+            result['file_sha256']=h.hexdigest()
+            sr=str(metadata.get('Sample Rate','Not available')); channels=str(metadata.get('Channels','Not available')); encoder=str(metadata.get('Encoder','Not available'))
+            text=' '.join([encoder,str(metadata.get('Title','')),str(metadata.get('Comment',''))]).lower()
+            marker=next((x for x in SYNTH_TERMS if x in text),None)
+            if marker:
+                evidence.append({"id":"AUD_EVID_SYNTH_TAG","title":"Possible synthetic-audio metadata marker","category":"AI Generation","severity":"Medium","description":f"Metadata contains a string associated with speech synthesis ({marker}). Tags can be forged or copied and do not prove this audio was generated.","technical_details":f"Encoder field: {encoder[:300]}"})
+            else:
+                evidence.append({"id":"AUD_EVID_NO_SYNTH_TAG","title":"No explicit synthesis marker found","category":"Metadata","severity":"Informational","description":"No known synthetic-speech marker was found in the metadata inspected. Absence of a marker does not establish that audio is genuine.","technical_details":f"Sample rate={sr}; channels={channels}; encoder={encoder}; no trained classifier used."})
+            evidence.append({"id":"AUD_EVID_TECH_METADATA","title":"Technical audio metadata recorded","category":"Acoustics","severity":"Informational","description":"Sample rate, channel count and encoder are descriptive technical properties, not reliable indicators of AI generation.","technical_details":f"Sample rate={sr}; channels={channels}; encoder={encoder}"})
+            result.update({"ai_marker_found":bool(marker),"feature_summary":{"metadata_marker":bool(marker),"sample_rate":sr,"channels":channels,"trained_detector_used":False}})
+        except Exception as exc:
+            logger.exception('Audio analysis failed')
+            result['analysis_error']=f'{type(exc).__name__}: {exc}'
+            evidence.append({"id":"AUD_EVID_ERROR","title":"Audio inspection failed","category":"System","severity":"Informational","description":"The file could not be inspected reliably; no AI verdict is available.","technical_details":result['analysis_error']})
+        return result,evidence

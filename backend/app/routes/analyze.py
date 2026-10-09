@@ -127,7 +127,7 @@ async def analyze_file(request: AnalysisRequest):
             confidence=fused.get("confidence", "Low"),
             confidence_score=fused.get("confidence_score", 0.0),
             evidence_strength=fused.get("evidence_strength", "Weak"),
-            uncertainty=fused.get("uncertainty", False),
+            uncertainty=fused.get("uncertainty", "High"),
             uncertainty_reasons=fused.get("uncertainty_reasons", []),
             why_explanation=fused.get("why_explanation", "No explanation provided."),
             signals=fused.get("signals", []),

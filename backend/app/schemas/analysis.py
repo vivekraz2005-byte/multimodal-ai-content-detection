@@ -17,12 +17,13 @@ class SignalBreakdown(BaseModel):
 
 class ProvenanceInfo(BaseModel):
     detected: bool
+    verified: bool = False  # True only after successful cryptographic/trust validation
     status: str  # "Verified Credentials", "Unsigned Manifest Found", "No Content Credentials Detected"
     manifest_type: Optional[str] = None
     creator: Optional[str] = None
     claim_generator: Optional[str] = None
     digital_source_type: Optional[str] = None
-    actions: List[Dict[str, Any]] = []
+    actions: List[Dict[str, Any]] = Field(default_factory=list)
     explanation: str
 
 class AnalysisRequest(BaseModel):
@@ -49,7 +50,7 @@ class AnalysisResponse(BaseModel):
     confidence_score: float  # 0.0 to 1.0
     evidence_strength: str  # "Strong", "Medium", "Weak"
     uncertainty: str  # "Low", "Moderate", "High"
-    uncertainty_reasons: List[str] = []
+    uncertainty_reasons: List[str] = Field(default_factory=list)
     why_explanation: str
     signals: Dict[str, SignalBreakdown]
     evidence_list: List[EvidenceItem]

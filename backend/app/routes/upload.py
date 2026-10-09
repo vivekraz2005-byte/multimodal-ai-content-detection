@@ -51,6 +51,7 @@ async def upload_file(file: UploadFile = File(...)):
         upload_data = {
             "file_id": file_id,
             "filename": safe_filename,
+            "target_path": str(target_path.resolve()),
             "original_filename": original_filename,
             "media_type": media_type,
             "file_size_bytes": size,
@@ -69,6 +70,10 @@ async def upload_file(file: UploadFile = File(...)):
 
     except HTTPException:
         raise
+    except ValueError as e:
+        if target_path.exists():
+            target_path.unlink()
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         if target_path.exists():
             target_path.unlink()

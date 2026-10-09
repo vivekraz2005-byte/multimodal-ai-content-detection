@@ -1,124 +1,302 @@
-import React, { useState } from 'react';
-import { AlertCircle, AlertTriangle, Info, CheckCircle, ChevronDown, ChevronUp, Cpu, Sliders, Database, Shield } from 'lucide-react';
 
-const SEVERITY_CONFIG = {
-  'High': {
-    color: '#ef4444',
-    bg: 'var(--danger-bg)',
-    border: 'var(--danger-border)',
-    icon: AlertCircle,
-    badgeClass: 'badge-danger'
+import React, { useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  ShieldAlert,
+} from "lucide-react";
+
+const severityConfig = {
+  high: {
+    label: "High",
+    color: "#f87171",
+    background: "rgba(248, 113, 113, 0.10)",
+    icon: ShieldAlert,
+    meaning: "A strong indicator was reported and deserves review.",
   },
-  'Medium': {
-    color: '#f59e0b',
-    bg: 'var(--warning-bg)',
-    border: 'var(--warning-border)',
+  medium: {
+    label: "Medium",
+    color: "#fbbf24",
+    background: "rgba(251, 191, 36, 0.10)",
     icon: AlertTriangle,
-    badgeClass: 'badge-warning'
+    meaning: "A possible concern was reported; further checking is needed.",
   },
-  'Low': {
-    color: '#3b82f6',
-    bg: 'var(--info-bg)',
-    border: 'var(--info-border)',
+  low: {
+    label: "Low",
+    color: "#60a5fa",
+    background: "rgba(96, 165, 250, 0.10)",
     icon: Info,
-    badgeClass: 'badge-info'
+    meaning: "A weak indicator was reported and may have an ordinary explanation.",
   },
-  'Informational': {
-    color: '#10b981',
-    bg: 'var(--success-bg)',
-    border: 'var(--success-border)',
-    icon: CheckCircle,
-    badgeClass: 'badge-success'
-  }
+  informational: {
+    label: "Informational",
+    color: "#34d399",
+    background: "rgba(52, 211, 153, 0.08)",
+    icon: Info,
+    meaning: "This is an observation, not proof that the file is fake.",
+  },
 };
 
-const EvidenceCard = ({ evidence, index }) => {
-  const [expanded, setExpanded] = useState(false);
-  const severity = evidence.severity || 'Low';
-  const config = SEVERITY_CONFIG[severity] || SEVERITY_CONFIG['Low'];
-  const Icon = config.icon;
+function getSeverity(severity) {
+  const key = String(severity || "Informational").toLowerCase();
+  return severityConfig[key] || severityConfig.informational;
+}
+
+function explainCategory(category) {
+  const value = String(category || "").toLowerCase();
+
+  if (value.includes("ai generation")) {
+    return (
+      "This finding relates to a possible AI-generation signal. " +
+      "A single heuristic cannot reliably confirm that an image was " +
+      "created by AI."
+    );
+  }
+
+  if (value.includes("manipulation")) {
+    return (
+      "This finding relates to a possible edit or alteration. " +
+      "Compression, resizing, filters and normal editing can also " +
+      "produce similar signals."
+    );
+  }
+
+  if (value.includes("metadata")) {
+    return (
+      "This finding concerns information stored alongside the file. " +
+      "Metadata can be missing or changed during normal sharing and export."
+    );
+  }
+
+  if (value.includes("provenance")) {
+    return (
+      "This finding concerns the file's origin or Content Credentials. " +
+      "A marker is not the same as a successfully verified digital signature."
+    );
+  }
 
   return (
-    <div style={{
-      background: 'rgba(255, 255, 255, 0.02)',
-      border: `1px solid ${config.border}`,
-      borderRadius: 'var(--radius-md)',
-      padding: '1.25rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.75rem',
-      transition: 'all 0.2s ease'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <div style={{
-            background: config.bg,
-            padding: '6px',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <Icon size={18} color={config.color} />
+    "This is an observation produced by the analysis pipeline. " +
+    "Its significance depends on the detection method and supporting evidence."
+  );
+}
+
+const EvidenceCard = ({ evidence = {}, index = 0 }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const title = evidence.title || `Forensic finding ${index + 1}`;
+  const category = evidence.category || "General analysis";
+  const description =
+    evidence.description || "No additional description was provided.";
+
+  const severity = getSeverity(evidence.severity);
+  const SeverityIcon = severity.icon;
+
+  const technicalDetails = evidence.technical_details;
+
+  return (
+    <article
+      style={{
+        border: "1px solid var(--border-subtle, #263247)",
+        borderRadius: "12px",
+        padding: "18px",
+        background: "var(--bg-surface, #101a2d)",
+        color: "var(--text-primary, #f1f5f9)",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", gap: "12px", minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              width: "36px",
+              height: "36px",
+              flexShrink: 0,
+              display: "grid",
+              placeItems: "center",
+              borderRadius: "9px",
+              background: severity.background,
+              color: severity.color,
+            }}
+          >
+            <SeverityIcon size={19} />
           </div>
-          <div>
-            <div style={{ fontSize: '0.72rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Evidence #{String(index + 1).padStart(2, '0')} • {evidence.category}
+
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                color: "var(--text-secondary, #aab5c5)",
+                fontSize: "0.75rem",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                overflowWrap: "anywhere",
+              }}
+            >
+              Evidence #{index + 1} · {category}
             </div>
-            <h4 style={{ fontSize: '1.02rem', fontWeight: 700, color: '#f3f4f6' }}>
-              {evidence.title}
-            </h4>
+
+            <h3
+              style={{
+                margin: "6px 0 0",
+                fontSize: "1rem",
+                lineHeight: 1.5,
+                overflowWrap: "anywhere",
+              }}
+            >
+              {title}
+            </h3>
           </div>
         </div>
 
-        <span className={`badge ${config.badgeClass}`} style={{ fontSize: '0.75rem' }}>
-          Severity: {severity}
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "5px 10px",
+            borderRadius: "999px",
+            background: severity.background,
+            color: severity.color,
+            border: `1px solid ${severity.color}55`,
+            fontSize: "0.78rem",
+            fontWeight: 700,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {severity.label} severity
         </span>
       </div>
 
-      <p style={{ color: '#d1d5db', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 }}>
-        {evidence.description}
+      <p
+        style={{
+          margin: "14px 0",
+          color: "var(--text-secondary, #c0cad8)",
+          lineHeight: 1.7,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {description}
       </p>
 
-      {evidence.technical_details && (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: "9px",
+          padding: "12px",
+          borderRadius: "8px",
+          background: severity.background,
+          marginBottom: "14px",
+        }}
+      >
+        <Info
+          size={17}
+          color={severity.color}
+          style={{ flexShrink: 0, marginTop: "2px" }}
+        />
+
         <div>
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
+          <strong style={{ fontSize: "0.85rem" }}>
+            What this finding means
+          </strong>
+
+          <p
             style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#60a5fa',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.3rem',
-              padding: 0
+              margin: "5px 0 0",
+              fontSize: "0.86rem",
+              lineHeight: 1.6,
+              color: "var(--text-secondary, #c0cad8)",
             }}
           >
-            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            {expanded ? 'Hide Technical Signal Details' : 'View Technical Signal Details'}
-          </button>
-
-          {expanded && (
-            <div style={{
-              marginTop: '0.5rem',
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              background: 'rgba(0, 0, 0, 0.4)',
-              border: '1px solid var(--border-subtle)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.82rem',
-              color: '#93c5fd'
-            }}>
-              {evidence.technical_details}
-            </div>
-          )}
+            {explainCategory(category)} {severity.meaning}
+          </p>
         </div>
-      )}
-    </div>
+      </div>
+
+      {technicalDetails !== undefined &&
+        technicalDetails !== null &&
+        technicalDetails !== "" && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setExpanded((current) => !current)}
+              aria-expanded={expanded}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
+                padding: "6px 0",
+                border: "none",
+                background: "transparent",
+                color: "#60a5fa",
+                cursor: "pointer",
+                fontSize: "0.9rem",
+                fontWeight: 600,
+              }}
+            >
+              {expanded ? (
+                <>
+                  <ChevronUp size={16} />
+                  Hide technical details
+                </>
+              ) : (
+                <>
+                  <ChevronDown size={16} />
+                  View technical details
+                </>
+              )}
+            </button>
+
+            {expanded && (
+              <div
+                style={{
+                  marginTop: "10px",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  background: "rgba(148, 163, 184, 0.08)",
+                  fontSize: "0.86rem",
+                  lineHeight: 1.7,
+                  overflowWrap: "anywhere",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {typeof technicalDetails === "string"
+                  ? technicalDetails
+                  : JSON.stringify(technicalDetails, null, 2)}
+              </div>
+            )}
+          </div>
+        )}
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "7px",
+          marginTop: "14px",
+          paddingTop: "12px",
+          borderTop: "1px solid var(--border-subtle, #263247)",
+          color: "var(--text-secondary, #aab5c5)",
+          fontSize: "0.8rem",
+        }}
+      >
+        <CheckCircle size={15} />
+        <span>
+          Finding recorded · Not an independent authenticity verdict
+        </span>
+      </div>
+    </article>
   );
 };
 

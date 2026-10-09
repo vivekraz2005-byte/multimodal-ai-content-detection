@@ -1,265 +1,49 @@
-"""
-=============================================================================
-ENTERPRISE EVIDENCE FUSION & MULTIMODAL DECISION ENGINE (v3.5)
-=============================================================================
-File: backend/app/services/evidence_fusion_engine.py
-Description: 
-    Performs rigorous multi-signal fusion across AI detection metrics, 
-    manipulation vectors, metadata integrity checks, and C2PA provenance.
-    Computes explainable risk scoring, uncertainty vectors, and structured 
-    recommendations without arbitrary randomness.
-=============================================================================
-"""
-
-import logging
-from typing import Dict, Any, List, Tuple
-from app.schemas.analysis import EvidenceItem, SignalBreakdown, ProvenanceInfo
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-
+"""Conservative evidence fusion; never treats heuristic features as calibrated probabilities."""
+from typing import Any, Dict, List, Tuple
+import math, logging
+from app.schemas.analysis import EvidenceItem, SignalBreakdown
+logger=logging.getLogger(__name__)
 class EvidenceFusionEngine:
-    """
-    Enterprise-Grade Evidence Fusion & Synthesis Service.
-    Aggregates multimodal forensic signals into a unified explainable decision matrix.
-    """
-
+    AI_MARKER_IDS={"IMG_EVID_GEN_SIGNATURE","DOC_EVID_LLM_TAG","VID_EVID_SYNTH_TAG","AUD_EVID_SYNTH_TAG"}
     @staticmethod
-    def fuse(
-        media_type: str,
-        media_results: Dict[str, Any],
-        raw_evidence: List[Dict[str, Any]],
-        metadata: Dict[str, Any],
-        provenance: ProvenanceInfo
-    ) -> Dict[str, Any]:
-        logger.info(f"Executing Evidence Fusion for media type: '{media_type}' with {len(raw_evidence)} evidence signals.")
-
-        # 1. Normalize individual signal channels safely
-        ai_score = float(media_results.get("ai_generation_score", 0.30))
-        manip_score = float(media_results.get("manipulation_score", 0.20))
-        
-        # Metadata anomaly score computation (Filtering out legitimate firmware builds)
-        meta_score, meta_indicators = EvidenceFusionEngine._score_metadata_anomalies(media_type, metadata)
-        
-        # Provenance trust score (C2PA cryptographic manifests lower risk significantly)
-        prov_score = 0.05 if provenance.detected else 0.45
-
-        # 2. Categorize evidence severity distributions
-        high_sev_evidence = [e for e in raw_evidence if e.get("severity") == "High"]
-        med_sev_evidence = [e for e in raw_evidence if e.get("severity") == "Medium"]
-        low_sev_evidence = [e for e in raw_evidence if e.get("severity") == "Low"]
-
-        # 3. Construct Granular Signal Breakdown Schema
-        signals = {
-            "ai_generation": SignalBreakdown(
-                score=round(ai_score, 3),
-                confidence="High" if len(high_sev_evidence) > 0 else ("Medium" if ai_score > 0.50 else "Low"),
-                indicators_detected=len([e for e in raw_evidence if e.get("category") == "AI Generation"]),
-                summary=f"Synthesized generative neural signal metric: {ai_score:.3f}."
-            ),
-            "manipulation": SignalBreakdown(
-                score=round(manip_score, 3),
-                confidence="Medium" if manip_score > 0.55 else "Low",
-                indicators_detected=len([e for e in raw_evidence if e.get("category") == "Manipulation"]),
-                summary=f"Compression, splicing, and editing artifact index: {manip_score:.3f}."
-            ),
-            "metadata": SignalBreakdown(
-                score=round(meta_score, 3),
-                confidence="Medium",
-                indicators_detected=meta_indicators,
-                summary=f"Metadata consistency index: {meta_score:.3f} with {meta_indicators} structural anomalies."
-            ),
-            "provenance": SignalBreakdown(
-                score=round(prov_score, 3),
-                confidence="High" if provenance.detected else "Medium",
-                indicators_detected=1 if provenance.detected else 0,
-                summary="Cryptographic C2PA Content Credentials verified." if provenance.detected else "No cryptographic manifest signature discovered."
-            )
+    def _score(value: Any, default: float=0.0)->float:
+        try: v=float(value)
+        except (TypeError,ValueError,OverflowError): return default
+        return max(0.0,min(1.0,v)) if math.isfinite(v) else default
+    @staticmethod
+    def _verified(provenance: Any)->bool:
+        # Current ProvenanceInfo has no `verified` field, so do not infer it from `detected` or status strings.
+        return getattr(provenance,'verified',False) is True or (isinstance(provenance,dict) and provenance.get('verified') is True)
+    @staticmethod
+    def fuse(media_type: str, media_results: Dict[str,Any], raw_evidence: List[Dict[str,Any]], metadata: Dict[str,Any], provenance: Any)->Dict[str,Any]:
+        media_results=media_results if isinstance(media_results,dict) else {}; raw_evidence=raw_evidence if isinstance(raw_evidence,list) else []; metadata=metadata if isinstance(metadata,dict) else {}
+        ai_model=media_results.get('ai_model_available') is True
+        manipulation_model=media_results.get('manipulation_model_available') is True
+        ai_score=EvidenceFusionEngine._score(media_results.get('ai_generation_score'))
+        manip_score=EvidenceFusionEngine._score(media_results.get('manipulation_score'))
+        marker_findings=[x for x in raw_evidence if isinstance(x,dict) and x.get('id') in EvidenceFusionEngine.AI_MARKER_IDS]
+        high_manip=[x for x in raw_evidence if isinstance(x,dict) and str(x.get('category','')).lower()=='manipulation' and str(x.get('severity','')).lower()=='high']
+        verified=EvidenceFusionEngine._verified(provenance)
+        metadata_count=sum(1 for k in ('EXIF Present','Software / Editor','Encoding Tool','Producer / Creator') if metadata.get(k) not in (None,False,'','Not available','Unknown','N/A'))
+        metadata_score=min(metadata_count/4,1.0)
+        formatted=[]
+        for i,item in enumerate(raw_evidence,1):
+            if not isinstance(item,dict): continue
+            formatted.append(EvidenceItem(id=str(item.get('id',f'EVID_{i:02d}')),title=str(item.get('title',f'Finding {i}')),category=str(item.get('category','Analysis')),severity=str(item.get('severity','Informational')),description=str(item.get('description','')),technical_details=str(item['technical_details']) if item.get('technical_details') is not None else None))
+        # Scores in the API are display-compatible placeholders when no model exists. Summary explicitly says unavailable.
+        signals={
+          'ai_generation':SignalBreakdown(score=round(ai_score,3),confidence='Low' if not ai_model else 'Medium',indicators_detected=len(marker_findings),summary=('Validated model output; calibration must be confirmed on a representative test set.' if ai_model else 'No trained AI detector ran. The displayed score is not an estimate of AI likelihood; metadata markers are weak supporting evidence only.')),
+          'manipulation':SignalBreakdown(score=round(manip_score,3),confidence='Low' if not manipulation_model else 'Medium',indicators_detected=len(high_manip),summary=('Model output; validation required.' if manipulation_model else 'No validated manipulation model ran. Metadata and encoding artifacts are not proof of editing.')),
+          'metadata':SignalBreakdown(score=round(metadata_score,3),confidence='Low',indicators_detected=metadata_count,summary=f'{metadata_count} descriptive metadata fields were present. This is not an AI-detection score.'),
+          'provenance':SignalBreakdown(score=1.0 if verified else 0.0,confidence='High' if verified else 'Low',indicators_detected=int(verified),summary=str(getattr(provenance,'explanation','Provenance not verified.')))
         }
-
-        # 4. Advanced Assessment & Weighted Confidence Derivation
-        has_direct_ai_tag = any(
-            e.get("id") in ("IMG_EVID_GEN_SIGNATURE", "DOC_EVID_LLM_TAG", "VID_EVID_SYNTH_TAG", "AUD_EVID_SYNTH_TAG") 
-            for e in raw_evidence
-        )
-        
-        if has_direct_ai_tag or (ai_score >= 0.76 and len(high_sev_evidence) >= 1):
-            assessment = "Likely AI-Generated"
-            confidence = "High"
-            confidence_score = 0.91
-            evidence_strength = "Strong"
-            uncertainty = "Low"
-            uncertainty_reasons = []
-            why_explanation = (
-                "Explicit generative AI parameter markers, prompt structures, or neural synthesizer signatures "
-                "were identified directly within the container format and spectral distribution."
-            )
-        elif ai_score >= 0.62:
-            assessment = "Likely AI-Generated"
-            confidence = "Medium"
-            confidence_score = 0.74
-            evidence_strength = "Medium"
-            uncertainty = "Moderate"
-            uncertainty_reasons = [
-                "Signals align with generative synthesis, but absence of raw training watermarks leaves open the possibility of heavy filters.",
-                "High-resolution optical captures with severe transcoding artifacts can occasionally trigger similar frequency anomalies."
-            ]
-            why_explanation = (
-                "Multiple spatial frequency components, micro-texture smoothness levels, and token distribution patterns "
-                "align closely with modern synthetic pipelines."
-            )
-        elif manip_score >= 0.68:
-            assessment = "Potentially Manipulated"
-            confidence = "Medium"
-            confidence_score = 0.70
-            evidence_strength = "Medium"
-            uncertainty = "Moderate"
-            uncertainty_reasons = [
-                "Localized compression irregularities may stem from multi-platform transcoding rather than malicious tampering."
-            ]
-            why_explanation = (
-                "Spectral and quantization error distributions indicate potential localized re-encoding or structural editing, "
-                "though conclusive malicious intent requires contextual validation."
-            )
-        elif (ai_score > 0.46 or manip_score > 0.46 or meta_score > 0.62):
-            assessment = "Suspicious"
-            confidence = "Medium"
-            confidence_score = 0.60
-            evidence_strength = "Medium"
-            uncertainty = "Moderate"
-            uncertainty_reasons = [
-                "Inconsistent container metadata or unusual compression structures were observed without explicit proof of generation.",
-                "Stripped hardware tags or absent optical sensor telemetry increases forensic ambiguity."
-            ]
-            why_explanation = (
-                "The file displays anomalous structural characteristics, such as missing hardware parameters or irregular quantization, "
-                "warranting secondary verification."
-            )
-        elif len(high_sev_evidence) == 0 and len(med_sev_evidence) == 0 and (
-            metadata.get("EXIF Present") or metadata.get("Camera Make") != "Not available" or metadata.get("Creation Date") != "Not available"
-        ):
-            assessment = "Likely Authentic"
-            confidence = "High" if provenance.detected else "Medium"
-            confidence_score = 0.85 if provenance.detected else 0.76
-            evidence_strength = "Strong" if provenance.detected else "Medium"
-            uncertainty = "Low" if provenance.detected else "Moderate"
-            uncertainty_reasons = [
-                "Absence of cryptographic C2PA manifests means origin cannot be guaranteed against zero-shot spoofed camera EXIF."
-            ] if not provenance.detected else []
-            why_explanation = (
-                "Verified hardware manufacturer tags, natural photon noise grain, and consistent temporal metadata "
-                "strongly support authentic optical capture origin."
-            )
+        if ai_model and ai_score>=0.8:
+            assessment='Likely AI-Generated'; confidence='Medium'; confidence_score=ai_score; strength='Medium'; uncertainty='Moderate'; why='A configured trained model returned a high AI-generation score. This is a model prediction, not proof; performance depends on model validation and the file domain.'
+        elif manipulation_model and manip_score>=0.8 and high_manip:
+            assessment='Potentially Manipulated'; confidence='Medium'; confidence_score=manip_score; strength='Medium'; uncertainty='Moderate'; why='A configured manipulation model and high-severity evidence suggest further review is warranted.'
+        elif marker_findings:
+            assessment='Suspicious'; confidence='Low'; confidence_score=0.2; strength='Weak'; uncertainty='High'; why='A generator-related metadata marker was found. Such markers can be absent, copied or forged and do not prove AI generation.'
         else:
-            assessment = "Inconclusive"
-            confidence = "Low"
-            confidence_score = 0.40
-            evidence_strength = "Weak"
-            uncertainty = "High"
-            uncertainty_reasons = [
-                "File metadata is largely stripped, and container packaging obscures primary sensor fingerprints.",
-                "Available statistical metrics do not provide enough divergence to confirm or reject synthetic origin."
-            ]
-            why_explanation = (
-                "The extracted forensic indicators provide insufficient statistical divergence to decisively determine authenticity or origin."
-            )
-
-        # 5. Compile and Validate Evidence List via Pydantic Schema
-        formatted_evidence = []
-        for idx, item in enumerate(raw_evidence, 1):
-            formatted_evidence.append(EvidenceItem(
-                id=item.get("id", f"EVID_{idx:02d}"),
-                title=item.get("title", f"Forensic Finding {idx:02d}"),
-                category=item.get("category", "Analysis"),
-                severity=item.get("severity", "Low"),
-                description=item.get("description", ""),
-                technical_details=item.get("technical_details", None)
-            ))
-
-        # 6. Generate Contextual Recommendations & Disclaimer
-        recommendations = EvidenceFusionEngine._generate_recommendations(assessment, provenance.detected, media_type)
-
-        disclaimer = (
-            "This enterprise engine supplies evidence-based authenticity metrics and probabilistic indicators, "
-            "not absolute legal proof. AI detection models can occasionally exhibit false positives. Results "
-            "should be interpreted alongside contextual verification and trusted cryptographic Content Credentials."
-        )
-
-        logger.info(f"Fusion complete. Assessment: '{assessment}' with Confidence Score: {confidence_score}")
-
-        return {
-            "assessment": assessment,
-            "confidence": confidence,
-            "confidence_score": confidence_score,
-            "evidence_strength": evidence_strength,
-            "uncertainty": uncertainty,
-            "uncertainty_reasons": uncertainty_reasons,
-            "why_explanation": why_explanation,
-            "signals": signals,
-            "evidence_list": formatted_evidence,
-            "recommendations": recommendations,
-            "disclaimer": disclaimer
-        }
-
-    @staticmethod
-    def _score_metadata_anomalies(media_type: str, metadata: Dict[str, Any]) -> Tuple[float, int]:
-        """Calculates precise metadata anomaly scores, filtering out legitimate device firmware tags."""
-        anomalies = 0
-        try:
-            if media_type == "image":
-                if not metadata.get("EXIF Present", False):
-                    anomalies += 1
-                
-                # Check software/editor, but IGNORE known smartphone manufacturer firmware build strings
-                software = metadata.get("Software / Editor", "Not available")
-                if software != "Not available":
-                    sw_lower = software.lower()
-                    # Common phone firmware identifiers (Samsung, Apple, Google, Xiaomi, etc.)
-                    is_phone_firmware = any(tag in sw_lower for tag in ["exx", "dxx", "ios", "pixel", "miui", "oneui", "build"])
-                    if not is_phone_firmware and not any(editor in sw_lower for editor in ["camera", "droid"]):
-                        anomalies += 1  # Only count actual editing software like Photoshop, Lightroom, Snapseed
-                
-                score = 0.20 + (0.20 * anomalies)
-            elif media_type == "video":
-                encoding_tool = metadata.get("Encoding Tool", "Not available")
-                if encoding_tool != "Not available" and not any(cam in encoding_tool.lower() for cam in ["samsung", "apple", "obs"]):
-                    anomalies += 1
-                score = 0.20 + (0.25 * anomalies)
-            elif media_type == "document":
-                prod = metadata.get("Producer / Creator", "Not available")
-                if prod != "Not available" and any(term in prod.lower() for term in ["reportlab", "headless", "puppeteer", "weasyprint"]):
-                    anomalies += 1
-                score = 0.20 + (0.30 * anomalies)
-            else:
-                score = 0.25
-        except Exception:
-            score = 0.25
-
-        return min(round(score, 3), 1.0), anomalies
-
-    @staticmethod
-    def _generate_recommendations(assessment: str, c2pa_detected: bool, media_type: str) -> List[str]:
-        """Generates targeted action items based on final assessment."""
-        recs = []
-        if assessment == "Likely AI-Generated":
-            recs.append("Request the original uncompressed master asset (RAW image, unedited WAV, or direct camera container).")
-            recs.append("Perform reverse search indexing across major databases to identify initial web publication sources.")
-            recs.append("Do not cite this media file as unverified factual evidence without corroboration.")
-        elif assessment == "Potentially Manipulated":
-            recs.append("Conduct a side-by-side comparison with historical file versions or platform backups if accessible.")
-            recs.append("Verify whether detected modifications correspond to benign adjustments (crop, color grading) or semantic alterations.")
-        elif assessment == "Suspicious":
-            recs.append("Validate the publishing source and transmitter identity through an independent channel.")
-            recs.append("Investigate whether intermediaries or social sharing platforms stripped container metadata during upload.")
-        elif assessment == "Likely Authentic":
-            recs.append("Media displays consistent optical/sensor capture characteristics, but maintain vigilance against out-of-context framing.")
-            recs.append("Consider embedding C2PA Content Credentials if publishing downstream to preserve verified provenance.")
-        else:
-            recs.append("File contains insufficient structural telemetry; obtain a higher-fidelity export directly from the source.")
-            recs.append("Cross-reference content with official agency statements, eyewitness reporting, or contextual logs.")
-
-        if not c2pa_detected:
-            recs.append("Note: The absence of Content Credentials does not imply fabrication, as legacy pipelines rarely embed C2PA manifests.")
-
-        return recs
+            assessment='Inconclusive'; confidence='Low'; confidence_score=0.2; strength='Weak'; uncertainty='High'; why='No validated model prediction or decisive independent evidence was available. Inconclusive does not mean authentic or fake.'
+        recommendations=['Treat this as a screening result, not proof or an accusation.','Preserve the original file and record where it came from.','Use a validated model and evaluate it on representative real, generated and edited files before relying on model scores.','For scams, independently verify the sender, identity, URL and transaction; media classification alone cannot determine whether a scam occurred.']
+        return {'assessment':assessment,'confidence':confidence,'confidence_score':round(EvidenceFusionEngine._score(confidence_score),3),'evidence_strength':strength,'uncertainty':uncertainty,'uncertainty_reasons':['No validated calibrated model was run.' if not (ai_model or manipulation_model) else 'Model predictions can fail outside their evaluation domain.','Metadata can be missing, edited or copied.','Provenance and AI detection are different questions.'],'why_explanation':why,'signals':signals,'evidence_list':formatted,'recommendations':recommendations,'disclaimer':'AuthenticityAI is a screening aid. No detector can guarantee exact identification. Scores are not calibrated probabilities unless a specific model has been validated and calibrated on representative data.'}

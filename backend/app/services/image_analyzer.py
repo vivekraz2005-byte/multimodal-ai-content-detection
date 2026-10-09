@@ -1,371 +1,371 @@
-"""
-=============================================================================
-ENTERPRISE MULTIMODAL IMAGE FORENSICS & AUTHENTICITY ENGINE (v3.5)
-=============================================================================
-File: backend/app/services/image_analyzer.py
-Description: 
-    Performs deep multi-layered digital forensics on raster image matrices.
-    Implements mathematical models for:
-      - Generative AI prompt / metadata signature extraction
-      - Advanced multi-block Error Level Analysis (ELA)
-      - 2D Fourier Transform (FFT) spatial frequency harmonic decomposition
-      - Photo Response Non-Uniformity (PRNU) & Laplacian noise variance
-      - Color Filter Array (CFA) demosaicing channel correlation
-      - Shannon entropy and spatial randomness estimation
-      - JPEG quantization table fingerprinting & compression profiling
-      - Edge sharpness gradient and high-frequency texture homogeneity
-=============================================================================
-"""
 
-import io
-import math
+"""Image analysis using metadata checks and an optional trained AI-image classifier."""
+
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 import hashlib
 import logging
-from pathlib import Path
-from typing import Dict, Any, List, Tuple
-from PIL import Image, ImageChops, ImageStat, ImageFilter, ImageEnhance
-import numpy as np
+import warnings
 
-# Configure module-level professional logger
+from PIL import Image
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+
+MAX_PIXELS = 80_000_000
+GENERATOR_TERMS = (
+    "stable diffusion", "midjourney", "dall-e", "dalle",
+    "comfyui", "automatic1111", "novelai", "invokeai",
+    "fooocus", "adobe firefly", "trainedalgorithmicmedia",
+)
+
+# Lazy-loaded model: load once and reuse for subsequent images.
+_MODEL = None
+_TRANSFORM = None
+_MODEL_ERROR = None
+
+
+def _load_detector():
+    """Load the downloaded ConvNeXt checkpoint once, on CPU or CUDA."""
+    global _MODEL, _TRANSFORM, _MODEL_ERROR
+
+    if _MODEL is not None:
+        return _MODEL, _TRANSFORM
+
+    if _MODEL_ERROR is not None:
+        raise RuntimeError(_MODEL_ERROR)
+
+    try:
+        import torch
+        import timm
+        from torchvision import transforms
+
+        backend_dir = Path(__file__).resolve().parents[2]
+        checkpoint_path = (
+            backend_dir / "model_files" / "checkpoints"
+            / "checkpoint_phase2.pth"
+        )
+
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(
+                f"Detector checkpoint not found: {checkpoint_path}"
+            )
+
+        device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location=device,
+            weights_only=True,
+        )
+
+        model = timm.create_model(
+            "convnextv2_base",
+            pretrained=False,
+            num_classes=2,
+        )
+        model.load_state_dict(checkpoint["model"])
+        model.to(device)
+        model.eval()
+
+        _TRANSFORM = transforms.Compose([
+            transforms.Resize(288),
+            transforms.CenterCrop(256),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                (0.485, 0.456, 0.406),
+                (0.229, 0.224, 0.225),
+            ),
+        ])
+
+        _MODEL = (model, device)
+        logger.info("ConvNeXt AI-image detector loaded on %s", device)
+        return _MODEL, _TRANSFORM
+
+    except Exception as exc:
+        _MODEL_ERROR = f"{type(exc).__name__}: {exc}"
+        logger.exception("Could not load AI-image detector")
+        raise RuntimeError(_MODEL_ERROR) from exc
+
+
+def _predict_image(image: Image.Image) -> Dict[str, float]:
+    """Return the model's Real and AI-generated class scores."""
+    import torch
+
+    (model, device), transform = _load_detector()
+    tensor = transform(image.convert("RGB")).unsqueeze(0).to(device)
+
+    with torch.inference_mode():
+        probabilities = torch.softmax(model(tensor), dim=1)[0]
+
+    # Checkpoint class order was verified with the model's test script.
+    return {
+        "real": float(probabilities[0].item()),
+        "fake": float(probabilities[1].item()),
+    }
 
 
 class ImageAnalyzer:
-    """
-    Enterprise-Grade Multimodal Image Authenticity & Deep Forensics Engine.
-    Examines pixel arrays, frequency spectra, and container metadata to output
-    high-precision authenticity indices.
-    """
-
     @staticmethod
-    def analyze(file_path: Path, metadata: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        """
-        Executes the full pipeline of image forensic checks.
-        
-        Args:
-            file_path (Path): Absolute path to the uploaded image file on disk.
-            metadata (Dict[str, Any]): Pre-extracted metadata dictionary.
-            
-        Returns:
-            Tuple containing:
-              - results (Dict): Aggregated scores and system metadata.
-              - evidence (List[Dict]): Detailed catalog of forensic findings.
-        """
-        logger.info(f"Initializing Enterprise Image Forensic Pipeline for: {file_path.name}")
-        
-        evidence = []
-        ai_signals = []
-        manipulation_signals = []
+    def analyze(
+        file_path: Path,
+        metadata: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
 
-        try:
-            # -----------------------------------------------------------------
-            # STEP 1: Binary Footprint & Cryptographic Integrity Hash
-            # -----------------------------------------------------------------
-            if not file_path.exists():
-                raise FileNotFoundError(f"Target file not found at path: {file_path}")
+        path = Path(file_path)
+        evidence: List[Dict[str, Any]] = []
 
-            file_bytes = file_path.read_bytes()
-            file_size_bytes = len(file_bytes)
-            sha256_hash = hashlib.sha256(file_bytes).hexdigest()
-            md5_hash = hashlib.md5(file_bytes).hexdigest()
-
-            logger.debug(f"Computed file SHA-256: {sha256_hash[:16]}... Size: {file_size_bytes} bytes")
-
-            # -----------------------------------------------------------------
-            # STEP 2: Raster Dimensions & Format Validation via PIL
-            # -----------------------------------------------------------------
-            with Image.open(file_path) as img:
-                width, height = img.size
-                format_name = img.format or "UNKNOWN"
-                mode = img.mode
-                is_animated = getattr(img, "is_animated", False)
-
-                logger.info(f"Opened image canvas: {width}x{height}px, Format: {format_name}, Mode: {mode}")
-
-                # -------------------------------------------------------------
-                # STEP 3: Generative AI Prompt & Latent Signature Scan
-                # -------------------------------------------------------------
-                ai_tag_found, tag_details = ImageAnalyzer._scan_generator_signatures(img, metadata)
-                if ai_tag_found:
-                    evidence.append({
-                        "id": "IMG_EVID_GEN_SIGNATURE",
-                        "title": "Generative Model Prompt Parameters Identified",
-                        "category": "AI Generation",
-                        "severity": "High",
-                        "description": f"Embedded container structures contain explicit generative model signatures ({tag_details}).",
-                        "technical_details": f"Latent diffusion signature matched: {tag_details}"
-                    })
-                    ai_signals.append(0.97)
-                else:
-                    ai_signals.append(0.15)
-
-                # -------------------------------------------------------------
-                # STEP 4: Hardware Capture & Optical Sensor Telemetry Check
-                # -------------------------------------------------------------
-                has_exif = metadata.get("EXIF Present", False)
-                camera_make = metadata.get("Camera Make", "Not available")
-                camera_model = metadata.get("Camera Model", "Not available")
-
-                if camera_make != "Not available" or camera_model != "Not available":
-                    evidence.append({
-                        "id": "IMG_EVID_OPTICAL_HARDWARE",
-                        "title": "Authentic Optical Sensor Pipeline Confirmed",
-                        "category": "Metadata",
-                        "severity": "Informational",
-                        "description": f"Verified physical hardware manufacturer tags: {camera_make} {camera_model}.",
-                        "technical_details": "EXIF tag hierarchy matches commercial CMOS/CCD sensor output."
-                    })
-                    ai_signals.append(0.06)
-                    manipulation_signals.append(0.10)
-                else:
-                    evidence.append({
-                        "id": "IMG_EVID_STRIPPED_METADATA",
-                        "title": "Absence of Physical Camera Device Tags",
-                        "category": "Metadata",
-                        "severity": "Low",
-                        "description": f"Resolution {width}x{height} lacks hardware manufacturer telemetry. Common in web exports or synthetic renders.",
-                        "technical_details": "Zero optical focal length, exposure time, or ISO parameters discovered."
-                    })
-                    ai_signals.append(0.40)
-
-                # Convert canvas to RGB numpy array for matrix computations
-                rgb_img = img.convert("RGB")
-                np_img = np.array(rgb_img)
-
-                # -------------------------------------------------------------
-                # STEP 5: Advanced Multi-Block Error Level Analysis (ELA)
-                # -------------------------------------------------------------
-                ela_score, ela_details = ImageAnalyzer._calculate_advanced_ela(rgb_img)
-                if ela_score > 0.52:
-                    evidence.append({
-                        "id": "IMG_EVID_ELA_ANOMALY",
-                        "title": "Localized Error Level Variance (Possible Splicing)",
-                        "category": "Manipulation",
-                        "severity": "Medium",
-                        "description": "Inconsistent compression quantization error across regional blocks suggests digital insertion or retouching.",
-                        "technical_details": ela_details
-                    })
-                    manipulation_signals.append(ela_score)
-                else:
-                    evidence.append({
-                        "id": "IMG_EVID_ELA_UNIFORM",
-                        "title": "Homogeneous Compression Quantization",
-                        "category": "Manipulation",
-                        "severity": "Informational",
-                        "description": "Error level distribution remains consistent throughout the raster matrix.",
-                        "technical_details": ela_details
-                    })
-                    manipulation_signals.append(max(0.12, ela_score))
-
-                # -------------------------------------------------------------
-                # STEP 6: Spatial Frequency Domain FFT Radial Spectrum Analysis
-                # -------------------------------------------------------------
-                fft_score, fft_details = ImageAnalyzer._spectral_fft_analysis(np_img)
-                evidence.append({
-                    "id": "IMG_EVID_SPECTRAL_GRID",
-                    "title": "Spatial Frequency Harmonic Decomposition",
-                    "category": "AI Generation",
-                    "severity": "Medium" if fft_score > 0.5 else "Informational",
-                    "description": "2D Fourier transform power spectrum evaluated for GAN upsampling grids or diffusion kernel artifacts.",
-                    "technical_details": fft_details
-                })
-                ai_signals.append(fft_score)
-
-                # -------------------------------------------------------------
-                # STEP 7: Photon Noise & PRNU Sensor Uniformity Analysis
-                # -------------------------------------------------------------
-                noise_score, noise_details = ImageAnalyzer._prnu_noise_variance_analysis(np_img)
-                evidence.append({
-                    "id": "IMG_EVID_NOISE_FINGERPRINT",
-                    "title": "Photon Noise & Laplacian Gradient Variance",
-                    "category": "AI Generation",
-                    "severity": "Medium" if noise_score > 0.55 else "Informational",
-                    "description": "High-frequency micro-texture gradient compared against natural Poisson distribution models.",
-                    "technical_details": noise_details
-                })
-                ai_signals.append(noise_score)
-
-                # -------------------------------------------------------------
-                # STEP 8: Color Filter Array (CFA) Demosaicing Consistency Check
-                # -------------------------------------------------------------
-                cfa_score, cfa_details = ImageAnalyzer._cfa_interpolation_check(np_img)
-                evidence.append({
-                    "id": "IMG_EVID_CFA_PATTERN",
-                    "title": "Color Filter Array Demosaicing Consistency",
-                    "category": "Manipulation",
-                    "severity": "Low" if cfa_score > 0.4 else "Informational",
-                    "description": "Bayer pattern interpolation correlation measured across RGB channel matrices.",
-                    "technical_details": cfa_details
-                })
-                manipulation_signals.append(cfa_score)
-
-                # -------------------------------------------------------------
-                # STEP 9: Shannon Entropy & Spatial Randomness Profiling
-                # -------------------------------------------------------------
-                entropy_score, entropy_details = ImageAnalyzer._shannon_entropy_analysis(np_img)
-                evidence.append({
-                    "id": "IMG_EVID_SHANNON_ENTROPY",
-                    "title": "Spatial Information Entropy Evaluation",
-                    "category": "AI Generation",
-                    "severity": "Informational",
-                    "description": "Bitstream complexity distribution analyzed across regional channel tiles.",
-                    "technical_details": entropy_details
-                })
-                ai_signals.append(entropy_score)
-
-        except Exception as e:
-            logger.error(f"Critical exception during image forensic execution: {str(e)}", exc_info=True)
-            evidence.append({
-                "id": "IMG_EVID_PIPELINE_ERROR",
-                "title": "Forensic Pipeline Exception",
-                "category": "System",
-                "severity": "Informational",
-                "description": f"Encountered exception during deep raster scanning: {str(e)}",
-                "technical_details": str(e)
-            })
-
-        # Calculate robust aggregated statistical mean scores
-        final_ai_score = float(np.mean(ai_signals)) if ai_signals else 0.28
-        final_manip_score = float(np.mean(manipulation_signals)) if manipulation_signals else 0.20
-
-        results = {
-            "ai_generation_score": round(final_ai_score, 3),
-            "manipulation_score": round(final_manip_score, 3),
-            "file_sha256": sha256_hash[:16],
-            "file_md5": md5_hash[:12],
-            "raster_dimensions": [width, height],
-            "analysis_engine": "Enterprise Multimodal Forensic Core v3.5"
+        base: Dict[str, Any] = {
+            "ai_generation_score": 0.0,
+            "manipulation_score": 0.0,
+            "ai_model_available": False,
+            "manipulation_model_available": False,
+            "score_semantics": (
+                "AI score is the model's softmax output, not a calibrated "
+                "probability or a guarantee of authenticity."
+            ),
+            "analysis_engine": "Image metadata checks; trained detector pending",
+            "file_sha256": None,
+            "file_md5": None,
+            "raster_dimensions": None,
         }
 
-        logger.info(f"Analysis complete. AI Score: {final_ai_score}, Manipulation Score: {final_manip_score}")
-        return results, evidence
-
-    @staticmethod
-    def _scan_generator_signatures(img: Image.Image, metadata: dict) -> Tuple[bool, str]:
-        """Scans image text chunks and metadata fields for generative AI signatures."""
-        try:
-            if hasattr(img, "text") and img.text:
-                for k, v in img.text.items():
-                    k_lower = str(k).lower()
-                    v_lower = str(v).lower()
-                    if any(term in k_lower for term in ["parameters", "prompt", "sd-metadata", "workflow", "steps", "generation"]):
-                        return True, f"PNG metadata chunk key '{k}'"
-                    if any(term in v_lower for term in ["stable diffusion", "steps:", "sampler:", "cfg scale", "negative prompt", "seed:"]):
-                        return True, "Stable Diffusion parameter string block"
-                    if "midjourney" in v_lower or "version v" in v_lower:
-                        return True, "Midjourney generative watermark parameter"
-
-            for key, val in metadata.items():
-                val_str = str(val).lower()
-                if any(model in val_str for model in ["stable diffusion", "midjourney", "dall-e", "comfyui"]):
-                    return True, f"Metadata field '{key}' matched generator keyword"
-        except Exception as e:
-            logger.warning(f"Generator signature scan warning: {str(e)}")
-
-        return False, ""
-
-    @staticmethod
-    def _calculate_advanced_ela(img: Image.Image, quality: int = 88) -> Tuple[float, str]:
-        """Performs localized Error Level Analysis (ELA) via JPEG re-compression difference mapping."""
-        try:
-            buffer = io.BytesIO()
-            img.save(buffer, "JPEG", quality=quality)
-            buffer.seek(0)
-            resaved = Image.open(buffer)
-            ela_im = ImageChops.difference(img, resaved)
-            stat = ImageStat.Stat(ela_im)
-            mean_vals = stat.mean
-            overall_mean = np.mean(mean_vals)
-            
-            extrema = stat.extrema
-            spread = np.mean([e[1] - e[0] for e in extrema])
-
-            normalized_score = min(max((overall_mean / 22.0) + (spread / 500.0), 0.0), 1.0)
-            details = f"ELA mean quantization error: {overall_mean:.2f}, Extrema dynamic spread: {spread:.2f}"
-            return round(float(normalized_score), 3), details
-        except Exception as e:
-            return 0.25, f"ELA sub-routine bypassed: {str(e)}"
-
-    @staticmethod
-    def _spectral_fft_analysis(np_img: np.ndarray) -> Tuple[float, str]:
-        """Calculates 2D Fast Fourier Transform power spectrum to detect periodic synthetic upsampling grids."""
-        try:
-            gray = 0.2989 * np_img[:, :, 0] + 0.5870 * np_img[:, :, 1] + 0.1140 * np_img[:, :, 2]
-            h, w = gray.shape
-            if h > 256 or w > 256:
-                resized = Image.fromarray(gray.astype(np.uint8)).resize((256, 256), Image.Resampling.LANCZOS)
-                gray = np.array(resized)
-
-            f = np.fft.fft2(gray)
-            fshift = np.fft.fftshift(f)
-            magnitude = 20 * np.log(np.abs(fshift) + 1e-5)
-
-            cy, cx = magnitude.shape[0] // 2, magnitude.shape[1] // 2
-            y, x = np.ogrid[:magnitude.shape[0], :magnitude.shape[1]]
-            dist = np.sqrt((x - cx)**2 + (y - cy)**2)
-
-            ring_mask = (dist > (magnitude.shape[0] * 0.3)) & (dist < (magnitude.shape[0] * 0.45))
-            ring_values = magnitude[ring_mask]
-            ring_std = float(np.std(ring_values))
-
-            score = min(max(1.0 - (ring_std / 28.0), 0.05), 0.95)
-            details = f"FFT radial ring standard deviation: {ring_std:.2f}, Spectral anomaly index: {score:.3f}"
-            return round(score, 3), details
-        except Exception as e:
-            return 0.30, f"FFT analysis bypassed: {str(e)}"
-
-    @staticmethod
-    def _prnu_noise_variance_analysis(np_img: np.ndarray) -> Tuple[float, str]:
-        """Examines high-frequency discrete Laplacian noise residual variance."""
-        try:
-            gray = 0.2989 * np_img[:, :, 0] + 0.5870 * np_img[:, :, 1] + 0.1140 * np_img[:, :, 2]
-            laplacian = (
-                -4 * gray[1:-1, 1:-1]
-                + gray[:-2, 1:-1]
-                + gray[2:, 1:-1]
-                + gray[1:-1, :-2]
-                + gray[1:-1, 2:]
+        if not path.is_file():
+            return ImageAnalyzer._error(
+                base, evidence,
+                "File does not exist or is not a regular file.",
             )
-            noise_variance = float(np.var(laplacian))
-            noise_mean_abs = float(np.mean(np.abs(laplacian)))
 
-            score = min(max(1.0 - (noise_variance / 110.0), 0.05), 0.95)
-            details = f"Laplacian noise variance: {noise_variance:.2f}, Absolute residue mean: {noise_mean_abs:.2f}"
-            return round(score, 3), details
-        except Exception as e:
-            return 0.30, f"Noise variance analysis bypassed: {str(e)}"
+        try:
+            sha256 = hashlib.sha256()
+            md5 = hashlib.md5(usedforsecurity=False)
+
+            with path.open("rb") as stream:
+                for chunk in iter(
+                    lambda: stream.read(1024 * 1024), b""
+                ):
+                    sha256.update(chunk)
+                    md5.update(chunk)
+
+            base["file_sha256"] = sha256.hexdigest()
+            base["file_md5"] = md5.hexdigest()
+
+            with warnings.catch_warnings():
+                warnings.simplefilter(
+                    "error", Image.DecompressionBombWarning
+                )
+
+                with Image.open(path) as img:
+                    width, height = img.size
+
+                    if (
+                        width <= 0
+                        or height <= 0
+                        or width * height > MAX_PIXELS
+                    ):
+                        raise ValueError(
+                            f"Unsafe image dimensions: {width}x{height}"
+                        )
+
+                    img.verify()
+
+                with Image.open(path) as img:
+                    img.load()
+                    width, height = img.size
+
+                    base["raster_dimensions"] = [width, height]
+                    base["image_format"] = img.format or "UNKNOWN"
+                    base["image_mode"] = img.mode
+                    base["animated"] = bool(
+                        getattr(img, "is_animated", False)
+                    )
+
+                    # Inspect metadata for known generator-related markers.
+                    tags: List[str] = []
+
+                    for key, value in (
+                        getattr(img, "text", {}) or {}
+                    ).items():
+                        val = f"{key}: {value}"
+
+                        if (
+                            any(t in val.lower() for t in GENERATOR_TERMS)
+                            or any(
+                                t in str(key).lower()
+                                for t in (
+                                    "prompt", "workflow",
+                                    "parameters", "generation",
+                                )
+                            )
+                        ):
+                            tags.append(val[:300])
+
+                    exif = img.getexif()
+                    software = str(exif.get(305, ""))
+
+                    if software and any(
+                        term in software.lower()
+                        for term in GENERATOR_TERMS
+                    ):
+                        tags.append(f"EXIF Software: {software[:200]}")
+
+                    if tags:
+                        evidence.append({
+                            "id": "IMG_EVID_GEN_SIGNATURE",
+                            "title": "Generator-related metadata marker found",
+                            "category": "AI Generation",
+                            "severity": "Medium",
+                            "description": (
+                                "Metadata contains a string associated with "
+                                "an image-generation tool. Metadata can be "
+                                "edited or copied and is not proof."
+                            ),
+                            "technical_details": "; ".join(tags[:5]),
+                        })
+                    else:
+                        evidence.append({
+                            "id": "IMG_EVID_NO_GEN_MARKER",
+                            "title": "No explicit generator marker found",
+                            "category": "Metadata",
+                            "severity": "Informational",
+                            "description": (
+                                "No known generator marker was found in the "
+                                "inspected metadata. This does not establish "
+                                "that the image is authentic."
+                            ),
+                            "technical_details": (
+                                "Metadata scan only; see trained-model "
+                                "result separately."
+                            ),
+                        })
+
+                    evidence.append({
+                        "id": "IMG_EVID_BASIC_VALIDATION",
+                        "title": "Image decoded successfully",
+                        "category": "File Integrity",
+                        "severity": "Informational",
+                        "description": (
+                            f"Pillow decoded a {img.format or 'unknown-format'} "
+                            f"image ({width}x{height}). Readability does not "
+                            "establish authenticity."
+                        ),
+                        "technical_details": (
+                            f"Mode={img.mode}; pixels={width * height:,}; "
+                            f"animated={bool(getattr(img, 'is_animated', False))}"
+                        ),
+                    })
+
+                    if (img.format or "").upper() == "JPEG":
+                        evidence.append({
+                            "id": "IMG_EVID_ELA_NOT_RUN",
+                            "title": "ELA not used as an authenticity verdict",
+                            "category": "Forensic Limitation",
+                            "severity": "Informational",
+                            "description": (
+                                "JPEG recompression and resizing can affect "
+                                "error-level differences. No manipulation "
+                                "probability is inferred from ELA."
+                            ),
+                            "technical_details": (
+                                "No trained manipulation model is configured."
+                            ),
+                        })
+
+                    # Run the trained AI-vs-real classifier.
+                    try:
+                        class_scores = _predict_image(img)
+
+                        base["ai_generation_score"] = class_scores["fake"]
+                        base["ai_model_available"] = True
+                        base["ai_class_scores"] = class_scores
+                        base["analysis_engine"] = (
+                            "xRayon ConvNeXtV2 AI-image classifier"
+                        )
+                        base["score_semantics"] = (
+                            "ConvNeXt softmax class score; not a calibrated "
+                            "probability or a guarantee of authenticity."
+                        )
+
+                        evidence.append({
+                            "id": "IMG_EVID_TRAINED_AI_CLASSIFIER",
+                            "title": "Trained AI-image classifier completed",
+                            "category": "AI Generation",
+                            "severity": "Informational",
+                            "description": (
+                                "A trained classifier compared the image "
+                                "against its Real and AI-generated classes. "
+                                "Its output is a model prediction, not proof."
+                            ),
+                            "technical_details": (
+                                f"Real score={class_scores['real']:.4f}; "
+                                f"AI-generated score={class_scores['fake']:.4f}"
+                            ),
+                        })
+
+                    except Exception as model_exc:
+                        logger.exception(
+                            "AI-image inference failed for %s", path.name
+                        )
+                        base["ai_model_available"] = False
+                        base["analysis_engine"] = (
+                            "Image metadata checks; trained detector unavailable"
+                        )
+                        base["model_error"] = (
+                            f"{type(model_exc).__name__}: {model_exc}"
+                        )
+
+                        evidence.append({
+                            "id": "IMG_EVID_MODEL_UNAVAILABLE",
+                            "title": "Trained AI-image detector unavailable",
+                            "category": "System",
+                            "severity": "Informational",
+                            "description": (
+                                "Metadata inspection completed, but the "
+                                "trained model could not produce a result. "
+                                "No AI-classification conclusion was made."
+                            ),
+                            "technical_details": str(model_exc)[:500],
+                        })
+
+            base["ai_marker_found"] = bool(tags)
+            base["feature_summary"] = {
+                "generator_metadata_marker": bool(tags),
+                "trained_detector_used": base["ai_model_available"],
+            }
+
+            return base, evidence
+
+        except Exception as exc:
+            logger.exception("Image analysis failed for %s", path.name)
+            return ImageAnalyzer._error(
+                base,
+                evidence,
+                f"Image could not be safely decoded: {type(exc).__name__}: {exc}",
+            )
 
     @staticmethod
-    def _cfa_interpolation_check(np_img: np.ndarray) -> Tuple[float, str]:
-        """Measures inter-channel RGB correlation as a proxy for Bayer CFA interpolation anomalies."""
-        try:
-            r_channel = np_img[:, :, 0].astype(float)
-            b_channel = np_img[:, :, 2].astype(float)
-            
-            corr = np.corrcoef(r_channel.ravel()[::64], b_channel.ravel()[::64])[0, 1]
-            if np.isnan(corr):
-                corr = 0.5
+    def _error(
+        base: Dict[str, Any],
+        evidence: List[Dict[str, Any]],
+        message: str,
+    ):
+        evidence.append({
+            "id": "IMG_EVID_PIPELINE_ERROR",
+            "title": "Image analysis unavailable",
+            "category": "System",
+            "severity": "Informational",
+            "description": message,
+            "technical_details": (
+                "The file was not assigned an AI probability because "
+                "reliable analysis did not complete."
+            ),
+        })
 
-            score = min(max(1.0 - abs(corr), 0.05), 0.90)
-            details = f"Inter-channel RGB cross-correlation coefficient: {corr:.3f}"
-            return round(score, 3), details
-        except Exception as e:
-            return 0.20, f"CFA check bypassed: {str(e)}"
+        base.update({
+            "analysis_error": message,
+            "ai_model_available": False,
+            "manipulation_model_available": False,
+        })
 
-    @staticmethod
-    def _shannon_entropy_analysis(np_img: np.ndarray) -> Tuple[float, str]:
-        """Computes Shannon entropy of gray-scale intensity distribution."""
-        try:
-            gray = 0.2989 * np_img[:, :, 0] + 0.5870 * np_img[:, :, 1] + 0.1140 * np_img[:, :, 2]
-            hist, _ = np.histogram(gray, bins=256, range=(0, 256), density=True)
-            hist = hist[hist > 0]
-            entropy = float(-np.sum(hist * np.log2(hist)))
-
-            # Normalized entropy score mapping (max possible 8.0 bits)
-            norm_entropy = min(max(entropy / 8.0, 0.0), 1.0)
-            score = round(abs(1.0 - norm_entropy), 3)
-            details = f"Shannon spatial information entropy: {entropy:.3f} bits/pixel"
-            return score, details
-        except Exception as e:
-            return 0.30, f"Shannon entropy analysis bypassed: {str(e)}"
+        return base, evidence
