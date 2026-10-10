@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "AuthenticityAI Guard",
+  "version": "1.1.1",
+  "description": "Scans images on normal webpages using your local AuthenticityAI backend.",
+  "minimum_chrome_version": "102",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "AuthenticityAI Guard",
+    "default_popup": "popup.html"
+  }
+}
