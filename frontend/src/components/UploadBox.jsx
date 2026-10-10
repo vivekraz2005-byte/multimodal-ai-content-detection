@@ -4,7 +4,11 @@ import { UploadCloud, Image, Video, Music, FileText, AlertCircle, FileCheck } fr
 const ACCEPTED_TYPES = {
   image: ['.jpg', '.jpeg', '.png', '.webp'],
   video: ['.mp4', '.mov', '.avi', '.webm'],
-  audio: ['.mp3', '.wav', '.m4a', '.flac', '.ogg'],
+ audio: [
+  '.mp3', '.mpeg', '.mpga', '.wav',
+  '.m4a', '.flac', '.ogg', '.aac',
+  '.opus', '.amr', '.3gp'
+],
   document: ['.pdf', '.docx', '.txt'],
 };
 
@@ -75,7 +79,7 @@ const UploadBox = ({ onFileSelected, disabled }) => {
           ref={fileInputRef}
           onChange={handleFileInputChange}
           style={{ display: 'none' }}
-          accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.avi,.webm,.mp3,.wav,.m4a,.flac,.ogg,.pdf,.docx,.txt"
+         accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.avi,.webm,.mp3,.mpeg,.mpga,.wav,.m4a,.flac,.ogg,.aac,.opus,.amr,.3gp,.pdf,.docx,.txt"
           disabled={disabled}
         />
 

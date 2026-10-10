@@ -13,7 +13,10 @@ MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100 MB
 ALLOWED_EXTENSIONS = {
     "image": {".jpg", ".jpeg", ".png", ".webp"},
     "video": {".mp4", ".mov", ".avi", ".webm"},
-    "audio": {".mp3", ".wav", ".m4a", ".flac", ".ogg"},
+    "audio": {
+        ".mp3", ".mpeg", ".mpga", ".wav", ".m4a",
+        ".flac", ".ogg", ".aac", ".opus", ".amr", ".3gp"
+    },
     "document": {".pdf", ".docx", ".txt"},
 }
 
@@ -30,7 +33,6 @@ APP_VERSION = "1.0.0"
 DEMO_MODE = True
 
 # For local React development, defaults to Vite's usual port.
-# Set FRONTEND_ORIGINS to a comma-separated list in production.
 _frontend_origins = os.getenv(
     "FRONTEND_ORIGINS",
     "http://localhost:5173,http://localhost:5174",

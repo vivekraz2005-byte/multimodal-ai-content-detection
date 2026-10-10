@@ -23,3 +23,9 @@ backend/model_files/test_ai.png
 # Backup files
 backend/app/services/*_backup.py
 backend/model_files/inference.py
+# Local Python virtual environment
+.venv-aegis/
+
+# Large downloaded audio model weights
+backend/model_files/audio/**/*.pt
+backend/model_files/audio/**/*.pth
